@@ -2,6 +2,9 @@
 
 echo
 
+RELEASE_NOTES=$(./Scripts/get-release-notes.py $TRAVIS_TAG)
+echo -e "Notes: $RELEASE_NOTES"
+
 # Only potentially push to CocoaPods when it's a tagged build
 if [ -z "$TRAVIS_TAG" ]; then
     echo -e "\nBuild is not tagged"
