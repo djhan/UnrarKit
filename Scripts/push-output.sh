@@ -2,8 +2,13 @@
 
 echo
 
+which python
+which python3
+
 RELEASE_NOTES=$(./Scripts/get-release-notes.py $TRAVIS_TAG)
 echo -e "Notes: $RELEASE_NOTES"
+
+exit 1
 
 # Only potentially push to CocoaPods when it's a tagged build
 if [ -z "$TRAVIS_TAG" ]; then
