@@ -3,7 +3,7 @@ osx_image: xcode9
 
 before_script:
     # Make log level less verbose. Temporarily undo if more info is needed
-    - sudo log config --mode "level:default"
+    - if [ "$TRAVIS_OS_NAME" -eq "osx" ]; then sudo log config --mode "level:default"; fi
 
 matrix:
   include:
