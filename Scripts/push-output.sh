@@ -9,6 +9,8 @@ if [ -z "$TRAVIS" ]; then
 fi
 
 echo -e "\nRunning release notes script from: $PYTHONENV"
+/usr/bin/env $PYTHONENV --version
+
 RELEASE_NOTES=$(/usr/bin/env $PYTHONENV "Scripts/get-release-notes.py" "$TRAVIS_TAG")
 echo -e "Notes: $RELEASE_NOTES"
 

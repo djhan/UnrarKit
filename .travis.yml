@@ -1,6 +1,5 @@
 language: objective-c
 osx_image: xcode9
-python: 3.6
 
 before_script:
     # Make log level less verbose. Temporarily undo if more info is needed
@@ -8,4 +7,6 @@ before_script:
 
 matrix:
   include:
-    - script: ./Scripts/push-output.sh
+    - language: python
+      python: 3.6
+      script: ./Scripts/push-output.sh
