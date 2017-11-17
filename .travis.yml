@@ -9,4 +9,5 @@ matrix:
   include:
     - language: python
       python: 3.6
+      install: ""
       script: ./Scripts/push-output.sh
