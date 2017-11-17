@@ -11,7 +11,8 @@ matrix:
       # The CLANG arguments and find command fail the build on analyzer errors
       script: xcodebuild -workspace UnrarKit.xcworkspace -scheme UnrarKit -destination 'platform=iOS Simulator,name=iPhone 7,OS=latest' -configuration Release analyze test CLANG_ANALYZER_OUTPUT=html CLANG_ANALYZER_OUTPUT_DIR=analyzer-output && [[ -z `find analyzer-output -name "*.html"` ]]
 
-    - language: python
+    - os: osx
+      language: python
       python: 3.6
       install: ""
       script: ./Scripts/push-output.sh
