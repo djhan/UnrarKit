@@ -2,16 +2,7 @@
 
 echo
 
-PYTHONENV="python"
-
-if [ -z "$TRAVIS" ]; then
-    PYTHONENV="python3"
-fi
-
-echo -e "\nRunning release notes script from: $PYTHONENV"
-/usr/bin/env $PYTHONENV --version
-
-RELEASE_NOTES=$(/usr/bin/env $PYTHONENV "Scripts/get-release-notes.py" "$TRAVIS_TAG")
+RELEASE_NOTES=$(./Scripts/get-release-notes.py "$TRAVIS_TAG")
 echo -e "Notes: $RELEASE_NOTES"
 
 exit 1
