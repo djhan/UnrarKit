@@ -280,7 +280,7 @@ NS_DESIGNATED_INITIALIZER
     return [files valueForKey:@"filename"];
 }
 
-- (NSArray<URKFileInfo*> *)listFileInfo:(NSError **)error
+- (NSArray<URKFileInfo*> *)listFileInfo:(NSError * __autoreleasing *)error //수정
 {
     __block NSMutableArray *fileInfos = [NSMutableArray array];
 
@@ -313,7 +313,7 @@ NS_DESIGNATED_INITIALIZER
 - (BOOL)extractFilesTo:(NSString *)filePath
              overwrite:(BOOL)overwrite
               progress:(void (^)(URKFileInfo *currentFile, CGFloat percentArchiveDecompressed))progress
-                 error:(NSError **)error
+                 error:(NSError * __autoreleasing *)error //수정
 {
     __block BOOL result = YES;
 
@@ -381,7 +381,7 @@ NS_DESIGNATED_INITIALIZER
 
 - (NSData *)extractDataFromFile:(NSString *)filePath
                        progress:(void (^)(CGFloat percentDecompressed))progress
-                          error:(NSError **)error
+                          error:(NSError * __autoreleasing *)error //수정
 {
     __block NSData *result = nil;
 
@@ -480,7 +480,7 @@ NS_DESIGNATED_INITIALIZER
 }
 
 - (BOOL)performOnDataInArchive:(void (^)(URKFileInfo *, NSData *, BOOL *))action
-                         error:(NSError **)error
+                         error:(NSError * __autoreleasing *)error //수정
 {
     BOOL success = [self performActionWithArchiveOpen:^(NSError **innerError) {
         int RHCode = 0, PFCode = 0;
@@ -526,7 +526,7 @@ NS_DESIGNATED_INITIALIZER
 }
 
 - (BOOL)extractBufferedDataFromFile:(NSString *)filePath
-                              error:(NSError **)error
+                              error:(NSError * __autoreleasing *)error //수정
                              action:(void(^)(NSData *dataChunk, CGFloat percentDecompressed))action
 {
     NSError *innerError = nil;
@@ -770,8 +770,8 @@ int CALLBACK BufferedReadCallbackProc(UINT msg, long UserData, long P1, long P2)
 
     if (flags)
         delete flags->ArcName;
-    delete flags, flags = 0;
-    delete header, header = 0;
+    static_cast<void>(delete flags), flags = 0;     //수정
+    static_cast<void>(delete header), header = 0;   //수정
     return YES;
 }
 
