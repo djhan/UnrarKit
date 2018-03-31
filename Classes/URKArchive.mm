@@ -99,12 +99,12 @@ NS_DESIGNATED_INITIALIZER
     if (!fileURL) {
         return nil;
     }
-
+    
     if ((self = [super init])) {
         if (error) {
             *error = nil;
         }
-
+        
         NSError *bookmarkError = nil;
         _fileBookmark = [fileURL bookmarkDataWithOptions:0
                           includingResourceValuesForKeys:@[]
@@ -112,18 +112,18 @@ NS_DESIGNATED_INITIALIZER
                                                    error:&bookmarkError];
         _password = password;
         _threadLock = [[NSObject alloc] init];
-
+        
         if (bookmarkError) {
             NSLog(@"Error creating bookmark to RAR archive: %@", bookmarkError);
-
+            
             if (error) {
                 *error = bookmarkError;
             }
-
+            
             return nil;
         }
     }
-
+    
     return self;
 }
 
@@ -135,40 +135,40 @@ NS_DESIGNATED_INITIALIZER
 {
     BOOL bookmarkIsStale = NO;
     NSError *error = nil;
-
+    
     NSURL *result = [NSURL URLByResolvingBookmarkData:self.fileBookmark
                                               options:0
                                         relativeToURL:nil
                                   bookmarkDataIsStale:&bookmarkIsStale
                                                 error:&error];
-
+    
     if (error) {
         NSLog(@"Error resolving bookmark to RAR archive: %@", error);
         return nil;
     }
-
+    
     if (bookmarkIsStale) {
         self.fileBookmark = [result bookmarkDataWithOptions:0
                              includingResourceValuesForKeys:@[]
                                               relativeToURL:nil
                                                       error:&error];
-
+        
         if (error) {
             NSLog(@"Error creating fresh bookmark to RAR archive: %@", error);
         }
-  }
-
+    }
+    
     return result;
 }
 
 - (NSString *)filename
 {
     NSURL *url = self.fileURL;
-
+    
     if (!url) {
         return nil;
     }
-
+    
     return url.path;
 }
 
@@ -185,7 +185,7 @@ NS_DESIGNATED_INITIALIZER
     if (fileInfo.count == 0) {
         return 0;
     }
-        
+    
     return [fileInfo valueForKeyPath:@"@sum.uncompressedSize"];
 }
 
@@ -218,20 +218,20 @@ NS_DESIGNATED_INITIALIZER
 + (BOOL)pathIsARAR:(NSString *)filePath
 {
     NSFileHandle *handle = [NSFileHandle fileHandleForReadingAtPath:filePath];
-
+    
     if (!handle) {
         return NO;
     }
-
+    
     @try {
         NSData *fileData = [handle readDataOfLength:8];
-
+        
         if (fileData.length < 8) {
             return NO;
         }
-
+        
         const unsigned char *dataBytes = (const unsigned char *)fileData.bytes;
-
+        
         // Check the magic numbers for all versions (Rar!..)
         if (dataBytes[0] != 0x52 ||
             dataBytes[1] != 0x61 ||
@@ -241,12 +241,12 @@ NS_DESIGNATED_INITIALIZER
             dataBytes[5] != 0x07) {
             return NO;
         }
-
+        
         // Check for v1.5 and on
         if (dataBytes[6] == 0x00) {
             return YES;
         }
-
+        
         // Check for v5.0
         if (dataBytes[6] == 0x01 &&
             dataBytes[7] == 0x00) {
@@ -256,7 +256,7 @@ NS_DESIGNATED_INITIALIZER
     @finally {
         [handle closeFile];
     }
-
+    
     return NO;
 }
 
@@ -265,7 +265,7 @@ NS_DESIGNATED_INITIALIZER
     if (!fileURL || !fileURL.path) {
         return NO;
     }
-
+    
     return [URKArchive pathIsARAR:fileURL.path];
 }
 
@@ -283,30 +283,37 @@ NS_DESIGNATED_INITIALIZER
 - (NSArray<URKFileInfo*> *)listFileInfo:(NSError * __autoreleasing *)error //수정
 {
     __block NSMutableArray *fileInfos = [NSMutableArray array];
-
+    
+    //약한 참조 설정
+    __weak typeof (self) weakSelf = self;
+    
     BOOL success = [self performActionWithArchiveOpen:^(NSError **innerError) {
+        
+        //강한 참조 설정
+        __typeof (self) strongSelf = weakSelf;
+        
         int RHCode = 0, PFCode = 0;
-
-        while ((RHCode = RARReadHeaderEx(_rarFile, header)) == 0) {
-            [fileInfos addObject:[URKFileInfo fileInfo:header]];
-
-            if ((PFCode = RARProcessFile(_rarFile, RAR_SKIP, NULL, NULL)) != 0) {
+        
+        while ((RHCode = RARReadHeaderEx(strongSelf->_rarFile, strongSelf->header)) == 0) {
+            [fileInfos addObject:[URKFileInfo fileInfo:strongSelf->header]];
+            
+            if ((PFCode = RARProcessFile(strongSelf->_rarFile, RAR_SKIP, NULL, NULL)) != 0) {
                 [self assignError:error code:(NSInteger)PFCode];
                 fileInfos = nil;
                 return;
             }
         }
-
+        
         if (RHCode != ERAR_SUCCESS && RHCode != ERAR_END_ARCHIVE) {
             [self assignError:error code:RHCode];
             fileInfos = nil;
         }
     } inMode:RAR_OM_LIST_INCSPLIT error:error];
-
-	if (!success || !fileInfos) {
+    
+    if (!success || !fileInfos) {
         return nil;
     }
-
+    
     return [NSArray arrayWithArray:fileInfos];
 }
 
@@ -316,59 +323,66 @@ NS_DESIGNATED_INITIALIZER
                  error:(NSError * __autoreleasing *)error //수정
 {
     __block BOOL result = YES;
-
+    
     NSError *listError = nil;
     NSArray *fileInfo = [self listFileInfo:&listError];
-
+    
     if (!fileInfo || listError) {
         NSLog(@"Error listing contents of archive: %@", listError);
-
+        
         if (error) {
             *error = listError;
         }
-
+        
         return NO;
     }
-
+    
     NSNumber *totalSize = [fileInfo valueForKeyPath:@"@sum.uncompressedSize"];
     __block long long bytesDecompressed = 0;
-
+    
+    //약한 참조 설정
+    __weak typeof (self) weakSelf = self;
+    
     BOOL success = [self performActionWithArchiveOpen:^(NSError **innerError) {
+        
+        //강한 참조 설정
+        __typeof (self) strongSelf = weakSelf;
+        
         int RHCode = 0, PFCode = 0;
         URKFileInfo *fileInfo;
-
-        while ((RHCode = RARReadHeaderEx(_rarFile, header)) == ERAR_SUCCESS) {
-            fileInfo = [URKFileInfo fileInfo:header];
-
+        
+        while ((RHCode = RARReadHeaderEx(strongSelf->_rarFile, strongSelf->header)) == ERAR_SUCCESS) {
+            fileInfo = [URKFileInfo fileInfo:strongSelf->header];
+            
             if (progress) {
                 progress(fileInfo, bytesDecompressed / totalSize.floatValue);
             }
-
+            
             if ([self headerContainsErrors:error]) {
                 result = NO;
                 return;
             }
-
-            if ((PFCode = RARProcessFile(_rarFile, RAR_EXTRACT, (char *) filePath.UTF8String, NULL)) != 0) {
+            
+            if ((PFCode = RARProcessFile(strongSelf->_rarFile, RAR_EXTRACT, (char *) filePath.UTF8String, NULL)) != 0) {
                 [self assignError:error code:(NSInteger)PFCode];
                 result = NO;
                 return;
             }
-
+            
             bytesDecompressed += fileInfo.uncompressedSize;
         }
-
+        
         if (RHCode != ERAR_SUCCESS && RHCode != ERAR_END_ARCHIVE) {
             [self assignError:error code:RHCode];
             result = NO;
         }
-
+        
         if (progress) {
             progress(fileInfo, 1.0);
         }
-
+        
     } inMode:RAR_OM_EXTRACT error:error];
-
+    
     return success && result;
 }
 
@@ -384,73 +398,80 @@ NS_DESIGNATED_INITIALIZER
                           error:(NSError * __autoreleasing *)error //수정
 {
     __block NSData *result = nil;
-
+    
+    //약한 참조 설정
+    __weak typeof (self) weakSelf = self;
+    
     BOOL success = [self performActionWithArchiveOpen:^(NSError **innerError) {
+        
+        //강한 참조 설정
+        __typeof (self) strongSelf = weakSelf;
+        
         int RHCode = 0, PFCode = 0;
         URKFileInfo *fileInfo;
-
-        while ((RHCode = RARReadHeaderEx(_rarFile, header)) == ERAR_SUCCESS) {
+        
+        while ((RHCode = RARReadHeaderEx(strongSelf->_rarFile, strongSelf->header)) == ERAR_SUCCESS) {
             if ([self headerContainsErrors:error]) {
                 return;
             }
-
-            fileInfo = [URKFileInfo fileInfo:header];
-
+            
+            fileInfo = [URKFileInfo fileInfo:strongSelf->header];
+            
             if ([fileInfo.filename isEqualToString:filePath]) {
                 break;
             }
             else {
-                if ((PFCode = RARProcessFileW(_rarFile, RAR_SKIP, NULL, NULL)) != 0) {
+                if ((PFCode = RARProcessFileW(strongSelf->_rarFile, RAR_SKIP, NULL, NULL)) != 0) {
                     [self assignError:error code:(NSInteger)PFCode];
                     return;
                 }
             }
         }
-
+        
         if (RHCode != ERAR_SUCCESS) {
             [self assignError:error code:RHCode];
             return;
         }
-
+        
         // Empty file, or a directory
         if (fileInfo.uncompressedSize == 0) {
             result = [NSData data];
             return;
         }
-
+        
         NSMutableData *fileData = [NSMutableData dataWithCapacity:(NSUInteger)fileInfo.uncompressedSize];
         CGFloat totalBytes = fileInfo.uncompressedSize;
         __block long long bytesRead = 0;
-
+        
         if (progress) {
             progress(0.0);
         }
-
-        RARSetCallback(_rarFile, BufferedReadCallbackProc, (long)(__bridge void *) self);
+        
+        RARSetCallback(strongSelf->_rarFile, BufferedReadCallbackProc, (long)(__bridge void *) self);
         self.bufferedReadBlock = ^void(NSData *dataChunk) {
             [fileData appendData:dataChunk];
-
+            
             bytesRead += dataChunk.length;
-
+            
             if (progress) {
                 progress(bytesRead / totalBytes);
             }
         };
-
-        PFCode = RARProcessFile(_rarFile, RAR_TEST, NULL, NULL);
-
+        
+        PFCode = RARProcessFile(strongSelf->_rarFile, RAR_TEST, NULL, NULL);
+        
         if (PFCode != 0) {
             [self assignError:error code:(NSInteger)PFCode];
             return;
         }
-
+        
         result = [NSData dataWithData:fileData];
     } inMode:RAR_OM_EXTRACT error:error];
-
+    
     if (!success) {
         return nil;
     }
-
+    
     return result;
 }
 
@@ -459,69 +480,76 @@ NS_DESIGNATED_INITIALIZER
 {
     NSError *listError = nil;
     NSArray *fileInfo = [self listFileInfo:&listError];
-
+    
     if (listError || !fileInfo) {
         NSLog(@"Failed to list the files in the archive");
-
+        
         if (error) {
             *error = listError;
         }
-
+        
         return NO;
     }
-
+    
     NSArray *sortedFileInfo = [fileInfo sortedArrayUsingDescriptors:@[[NSSortDescriptor sortDescriptorWithKey:@"filename" ascending:YES]]];
-
+    
     [sortedFileInfo enumerateObjectsUsingBlock:^(URKFileInfo *info, NSUInteger idx, BOOL *stop) {
         action(info, stop);
     }];
-
+    
     return YES;
 }
 
 - (BOOL)performOnDataInArchive:(void (^)(URKFileInfo *, NSData *, BOOL *))action
                          error:(NSError * __autoreleasing *)error //수정
 {
+    //약한 참조 설정
+    __weak typeof (self) weakSelf = self;
+    
     BOOL success = [self performActionWithArchiveOpen:^(NSError **innerError) {
+        
+        //강한 참조 설정
+        __typeof (self) strongSelf = weakSelf;
+        
         int RHCode = 0, PFCode = 0;
-
+        
         BOOL stop = NO;
-
-        while ((RHCode = RARReadHeaderEx(_rarFile, header)) == 0) {
+        
+        while ((RHCode = RARReadHeaderEx(strongSelf->_rarFile, strongSelf->header)) == 0) {
             if (stop || [self headerContainsErrors:error]) {
                 return;
             }
-
-            URKFileInfo *info = [URKFileInfo fileInfo:header];
-
+            
+            URKFileInfo *info = [URKFileInfo fileInfo:strongSelf->header];
+            
             // Empty file, or a directory
             if (info.uncompressedSize == 0) {
                 action(info, [NSData data], &stop);
                 continue;
             }
-
+            
             UInt8 *buffer = (UInt8 *)malloc((size_t)info.uncompressedSize * sizeof(UInt8));
             UInt8 *callBackBuffer = buffer;
-
-            RARSetCallback(_rarFile, CallbackProc, (long) &callBackBuffer);
-
-            PFCode = RARProcessFile(_rarFile, RAR_TEST, NULL, NULL);
-
+            
+            RARSetCallback(strongSelf->_rarFile, CallbackProc, (long) &callBackBuffer);
+            
+            PFCode = RARProcessFile(strongSelf->_rarFile, RAR_TEST, NULL, NULL);
+            
             if (PFCode != 0) {
                 [self assignError:error code:(NSInteger)PFCode];
                 return;
             }
-
+            
             NSData *data = [NSData dataWithBytesNoCopy:buffer length:(NSUInteger)info.uncompressedSize freeWhenDone:YES];
             action(info, data, &stop);
         }
-
+        
         if (RHCode != ERAR_SUCCESS && RHCode != ERAR_END_ARCHIVE) {
             [self assignError:error code:RHCode];
             return;
         }
     } inMode:RAR_OM_EXTRACT error:error];
-
+    
     return success;
 }
 
@@ -530,63 +558,70 @@ NS_DESIGNATED_INITIALIZER
                              action:(void(^)(NSData *dataChunk, CGFloat percentDecompressed))action
 {
     NSError *innerError = nil;
-
+    
+    //약한 참조 설정
+    __weak typeof (self) weakSelf = self;
+    
     BOOL success = [self performActionWithArchiveOpen:^(NSError **innerError) {
+        
+        //강한 참조 설정
+        __typeof (self) strongSelf = weakSelf;
+        
         int RHCode = 0, PFCode = 0;
         URKFileInfo *fileInfo;
-
-        while ((RHCode = RARReadHeaderEx(_rarFile, header)) == ERAR_SUCCESS) {
+        
+        while ((RHCode = RARReadHeaderEx(strongSelf->_rarFile, strongSelf->header)) == ERAR_SUCCESS) {
             if ([self headerContainsErrors:error]) {
                 return;
             }
-
-            fileInfo = [URKFileInfo fileInfo:header];
-
+            
+            fileInfo = [URKFileInfo fileInfo:strongSelf->header];
+            
             if ([fileInfo.filename isEqualToString:filePath]) {
                 break;
             }
             else {
-                if ((PFCode = RARProcessFile(_rarFile, RAR_SKIP, NULL, NULL)) != 0) {
+                if ((PFCode = RARProcessFile(strongSelf->_rarFile, RAR_SKIP, NULL, NULL)) != 0) {
                     [self assignError:error code:(NSInteger)PFCode];
                     return;
                 }
             }
         }
-
+        
         if (RHCode != ERAR_SUCCESS) {
             [self assignError:error code:RHCode];
             return;
         }
-
+        
         // Empty file, or a directory
         if (fileInfo.uncompressedSize == 0) {
             return;
         }
-
+        
         CGFloat totalBytes = fileInfo.uncompressedSize;
         __block long long bytesRead = 0;
-
-        RARSetCallback(_rarFile, BufferedReadCallbackProc, (long)(__bridge void *) self);
+        
+        RARSetCallback(strongSelf->_rarFile, BufferedReadCallbackProc, (long)(__bridge void *) self);
         self.bufferedReadBlock = ^void(NSData *dataChunk) {
             bytesRead += dataChunk.length;
             action(dataChunk, bytesRead / totalBytes);
         };
-
-        PFCode = RARProcessFile(_rarFile, RAR_TEST, NULL, NULL);
-
+        
+        PFCode = RARProcessFile(strongSelf->_rarFile, RAR_TEST, NULL, NULL);
+        
         if (PFCode != 0) {
             [self assignError:error code:(NSInteger)PFCode];
         }
     } inMode:RAR_OM_EXTRACT error:&innerError];
-
+    
     if (error) {
         *error = innerError ? innerError : nil;
-
+        
         if (innerError) {
             NSLog(@"Error reading buffered data from file\nfilePath: %@\nerror: %@", filePath, innerError);
         }
     }
-
+    
     return success && !innerError;
 }
 
@@ -601,30 +636,30 @@ NS_DESIGNATED_INITIALIZER
         {
             return NO;
         }
-
+        
         if (error) {
             NSLog(@"Error checking for password: %@", error);
             return NO;
         }
-
+        
         int RHCode = RARReadHeaderEx(_rarFile, header);
         int PFCode = RARProcessFile(_rarFile, RAR_SKIP, NULL, NULL);
-
+        
         if ([self headerContainsErrors:&error]) {
             if (error.code == ERAR_MISSING_PASSWORD) {
                 return YES;
             }
-
+            
             NSLog(@"Errors in header while checking for password: %@", error);
         }
-
+        
         if (RHCode == ERAR_MISSING_PASSWORD || PFCode == ERAR_MISSING_PASSWORD)
             return YES;
     }
     @finally {
         [self closeFile];
     }
-
+    
     return NO;
 }
 
@@ -632,21 +667,27 @@ NS_DESIGNATED_INITIALIZER
 {
     __block NSError *error = nil;
     __block BOOL result = NO;
-
+    
+    //약한 참조 설정
+    __weak typeof (self) weakSelf = self;
+    
     BOOL success = [self performActionWithArchiveOpen:^(NSError **innerError) {
+        //강한 참조 설정
+        __typeof (self) strongSelf = weakSelf;
+        
         if (error) {
             NSLog(@"Error validating password: %@", error);
             return;
         }
-
-        int RHCode = RARReadHeaderEx(_rarFile, header);
-        int PFCode = RARProcessFile(_rarFile, RAR_TEST, NULL, NULL);
-
+        
+        int RHCode = RARReadHeaderEx(strongSelf->_rarFile, strongSelf->header);
+        int PFCode = RARProcessFile(strongSelf->_rarFile, RAR_TEST, NULL, NULL);
+        
         if ([self headerContainsErrors:&error] && error.code == ERAR_MISSING_PASSWORD) {
             NSLog(@"Errors in header while validating password: %@", error);
             return;
         }
-
+        
         if (RHCode == ERAR_MISSING_PASSWORD
             || PFCode == ERAR_MISSING_PASSWORD
             || RHCode == ERAR_BAD_DATA
@@ -654,10 +695,10 @@ NS_DESIGNATED_INITIALIZER
             || RHCode == ERAR_BAD_PASSWORD
             || PFCode == ERAR_BAD_PASSWORD)
             return;
-
+        
         result = YES;
     } inMode:RAR_OM_EXTRACT error:&error];
-
+    
     return success && result;
 }
 
@@ -668,33 +709,33 @@ NS_DESIGNATED_INITIALIZER
 
 int CALLBACK CallbackProc(UINT msg, long UserData, long P1, long P2) {
     UInt8 **buffer;
-
+    
     switch(msg) {
         case UCM_CHANGEVOLUME:
             break;
-
+            
         case UCM_PROCESSDATA:
             buffer = (UInt8 **) UserData;
             memcpy(*buffer, (UInt8 *)P1, P2);
             // advance the buffer ptr, original m_buffer ptr is untouched
             *buffer += P2;
             break;
-
+            
         case UCM_NEEDPASSWORD:
             break;
     }
-
+    
     return 0;
 }
 
 int CALLBACK BufferedReadCallbackProc(UINT msg, long UserData, long P1, long P2) {
     URKArchive *refToSelf = (__bridge URKArchive *)(void *)UserData;
-
+    
     if (msg == UCM_PROCESSDATA) {
         NSData *dataChunk = [NSData dataWithBytesNoCopy:(UInt8 *)P1 length:P2 freeWhenDone:NO];
         refToSelf.bufferedReadBlock(dataChunk);
     }
-
+    
     return 0;
 }
 
@@ -711,21 +752,21 @@ int CALLBACK BufferedReadCallbackProc(UINT msg, long UserData, long P1, long P2)
         if (error) {
             *error = nil;
         }
-
+        
         if (![self _unrarOpenFile:self.filename
                            inMode:mode
                      withPassword:self.password
                             error:error]) {
             return NO;
         }
-
+        
         @try {
             action(error);
         }
         @finally {
             [self closeFile];
         }
-
+        
         return !error || !*error;
     }
 }
@@ -735,31 +776,31 @@ int CALLBACK BufferedReadCallbackProc(UINT msg, long UserData, long P1, long P2)
     if (error) {
         *error = nil;
     }
-
+    
     ErrHandler.Clean();
-
+    
     header = new RARHeaderDataEx;
     bzero(header, sizeof(RARHeaderDataEx));
-	flags = new RAROpenArchiveDataEx;
+    flags = new RAROpenArchiveDataEx;
     bzero(flags, sizeof(RAROpenArchiveDataEx));
-
-	const char *filenameData = (const char *) [rarFile UTF8String];
-	flags->ArcName = new char[strlen(filenameData) + 1];
-	strcpy(flags->ArcName, filenameData);
-	flags->OpenMode = (uint)mode;
-
-	_rarFile = RAROpenArchiveEx(flags);
-	if (_rarFile == 0 || flags->OpenResult != 0) {
+    
+    const char *filenameData = (const char *) [rarFile UTF8String];
+    flags->ArcName = new char[strlen(filenameData) + 1];
+    strcpy(flags->ArcName, filenameData);
+    flags->OpenMode = (uint)mode;
+    
+    _rarFile = RAROpenArchiveEx(flags);
+    if (_rarFile == 0 || flags->OpenResult != 0) {
         [self assignError:error code:(NSInteger)flags->OpenResult];
-		return NO;
+        return NO;
     }
-
+    
     if(aPassword != nil) {
         char *password = (char *) [aPassword UTF8String];
         RARSetPassword(_rarFile, password);
     }
-
-	return YES;
+    
+    return YES;
 }
 
 - (BOOL)closeFile;
@@ -767,7 +808,7 @@ int CALLBACK BufferedReadCallbackProc(UINT msg, long UserData, long P1, long P2)
     if (_rarFile)
         RARCloseArchive(_rarFile);
     _rarFile = 0;
-
+    
     if (flags)
         delete flags->ArcName;
     static_cast<void>(delete flags), flags = 0;     //수정
@@ -778,69 +819,69 @@ int CALLBACK BufferedReadCallbackProc(UINT msg, long UserData, long P1, long P2)
 - (NSString *)errorNameForErrorCode:(NSInteger)errorCode
 {
     NSString *errorName;
-
+    
     switch (errorCode) {
         case ERAR_END_ARCHIVE:
             errorName = @"ERAR_END_ARCHIVE";
             break;
-
+            
         case ERAR_NO_MEMORY:
             errorName = @"ERAR_NO_MEMORY";
             break;
-
+            
         case ERAR_BAD_DATA:
             errorName = @"ERAR_BAD_DATA";
             break;
-
+            
         case ERAR_BAD_ARCHIVE:
             errorName = @"ERAR_BAD_ARCHIVE";
             break;
-
+            
         case ERAR_UNKNOWN_FORMAT:
             errorName = @"ERAR_UNKNOWN_FORMAT";
             break;
-
+            
         case ERAR_EOPEN:
             errorName = @"ERAR_EOPEN";
             break;
-
+            
         case ERAR_ECREATE:
             errorName = @"ERAR_ECREATE";
             break;
-
+            
         case ERAR_ECLOSE:
             errorName = @"ERAR_ECLOSE";
             break;
-
+            
         case ERAR_EREAD:
             errorName = @"ERAR_EREAD";
             break;
-
+            
         case ERAR_EWRITE:
             errorName = @"ERAR_EWRITE";
             break;
-
+            
         case ERAR_SMALL_BUF:
             errorName = @"ERAR_SMALL_BUF";
             break;
-
+            
         case ERAR_UNKNOWN:
             errorName = @"ERAR_UNKNOWN";
             break;
-
+            
         case ERAR_MISSING_PASSWORD:
             errorName = @"ERAR_MISSING_PASSWORD";
             break;
-
+            
         case ERAR_ARCHIVE_NOT_FOUND:
             errorName = @"ERAR_ARCHIVE_NOT_FOUND";
             break;
-
+            
         default:
             errorName = [NSString stringWithFormat:@"Unknown error code: %u", flags->OpenResult];
             break;
     }
-
+    
     return errorName;
 }
 
@@ -848,24 +889,24 @@ int CALLBACK BufferedReadCallbackProc(UINT msg, long UserData, long P1, long P2)
 {
     if (error) {
         NSString *errorName = [self errorNameForErrorCode:errorCode];
-
+        
         *error = [NSError errorWithDomain:URKErrorDomain
                                      code:errorCode
                                  userInfo:@{NSLocalizedFailureReasonErrorKey: errorName}];
     }
-
+    
     return NO;
 }
 
 - (BOOL)headerContainsErrors:(NSError **)error
 {
     BOOL isPasswordProtected = header->Flags & 0x04;
-
+    
     if (isPasswordProtected && !self.password) {
         [self assignError:error code:ERAR_MISSING_PASSWORD];
         return YES;
     }
-
+    
     return NO;
 }
 
